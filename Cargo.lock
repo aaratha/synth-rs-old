@@ -3435,6 +3435,7 @@ name = "synth-rs"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_math",
  "cpal",
  "rand 0.8.5",
  "rustfmt",

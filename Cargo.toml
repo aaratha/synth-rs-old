@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.13.2"
+bevy_math = "0.13.2"
 cpal = "0.15.3"
 rand = "0.8.5"
 rustfmt = "0.10.0"
