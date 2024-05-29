@@ -5,7 +5,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
-use sdl2::render::{Canvas, TextureCreator};
+use sdl2::render::{BlendMode, Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 use std::time::Duration;
 
@@ -139,10 +139,11 @@ fn main() {
         .unwrap();
 
     let mut canvas = window.into_canvas().build().unwrap();
+    canvas.set_blend_mode(BlendMode::Blend); // Enable blending mode for transparency
     let texture_creator = canvas.texture_creator();
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    let mut square1 = Square::new(100, 100, 100, Color::RGB(255, 0, 0));
+    let mut square1 = Square::new(100, 100, 100, Color::RGBA(255, 0, 0, 0)); // 50% transparent
     let mut square2 = Square::new(120, 120, 100, Color::RGB(0, 0, 255));
     let square2_texture =
         create_texture(&mut canvas, &texture_creator, square2.color, square2.size);
@@ -192,6 +193,7 @@ fn main() {
         // Draw grid
         draw_grid(&mut canvas, Color::RGB(50, 50, 50), GRID_SIZE);
 
+        // Draw the first square with transparency
         canvas.set_draw_color(square1.color);
         canvas.fill_rect(square1.rect()).unwrap();
 
