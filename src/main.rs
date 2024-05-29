@@ -15,6 +15,10 @@ struct Vec2 {
     y: i32,
 }
 
+const GRID_SIZE: i32 = 100;
+const LERP_SPEED: f32 = 0.3;
+const TILT_STRENGTH: f32 = 0.4;
+
 impl Vec2 {
     fn new(x: i32, y: i32) -> Self {
         Vec2 { x, y }
@@ -74,6 +78,21 @@ impl Square {
         let angle = dx as f64 * strength as f64;
         self.angle = angle;
     }
+
+    fn center(&self) -> Vec2 {
+        Vec2::new(
+            self.position.x + self.size as i32 / 2,
+            self.position.y + self.size as i32 / 2,
+        )
+    }
+
+    fn snap_to_grid(&mut self, grid_spacing: i32) {
+        let center = self.center();
+        let snapped_x = ((center.x / grid_spacing) * grid_spacing) + grid_spacing / 2;
+        let snapped_y = ((center.y / grid_spacing) * grid_spacing) + grid_spacing / 2;
+        self.position.x = snapped_x - self.size as i32 / 2;
+        self.position.y = snapped_y - self.size as i32 / 2;
+    }
 }
 
 fn create_texture<'a>(
@@ -92,6 +111,21 @@ fn create_texture<'a>(
         })
         .unwrap();
     texture
+}
+
+fn draw_grid(canvas: &mut Canvas<Window>, color: Color, spacing: i32) {
+    canvas.set_draw_color(color);
+    let (width, height) = canvas.output_size().unwrap();
+    for x in (0..width).step_by(spacing as usize) {
+        canvas
+            .draw_line((x as i32, 0), (x as i32, height as i32))
+            .unwrap();
+    }
+    for y in (0..height).step_by(spacing as usize) {
+        canvas
+            .draw_line((0, y as i32), (width as i32, y as i32))
+            .unwrap();
+    }
 }
 
 fn main() {
@@ -134,6 +168,7 @@ fn main() {
                 Event::MouseButtonUp { mouse_btn, .. } => {
                     if mouse_btn == MouseButton::Left {
                         square1.dragging = false;
+                        square1.snap_to_grid(GRID_SIZE);
                     }
                 }
                 Event::MouseMotion { x, y, .. } => {
@@ -146,13 +181,16 @@ fn main() {
         }
 
         // Update second square's position to follow the first square using LERP
-        square2.lerp_to(square1.position, 0.3);
+        square2.lerp_to(square1.position, LERP_SPEED);
 
         // Update the tilt of the second square
-        square2.tilt(square1.position, 0.1);
+        square2.tilt(square1.position, TILT_STRENGTH);
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
+
+        // Draw grid
+        draw_grid(&mut canvas, Color::RGB(50, 50, 50), GRID_SIZE);
 
         canvas.set_draw_color(square1.color);
         canvas.fill_rect(square1.rect()).unwrap();
