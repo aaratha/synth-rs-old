@@ -20,10 +20,11 @@ struct MousePosition {
     x: f32,
     y: f32,
 }
+
 #[derive(Resource, Debug)]
 struct SquarePositions {
-    first: Vec2,
-    second: Vec2,
+    target: Vec2,
+    current: Vec2,
 }
 
 #[derive(Resource, Debug)]
@@ -48,8 +49,8 @@ fn main() {
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
         .insert_resource(SquarePositions {
-            first: Vec2::ZERO,
-            second: Vec2::ZERO,
+            target: Vec2::ZERO,
+            current: Vec2::ZERO,
         })
         .add_systems(Startup, setup)
         .add_systems(
@@ -57,8 +58,7 @@ fn main() {
             (
                 mouse_motion,
                 mouse_button,
-                update_position,
-                update_square_positions,
+                update_target_position,
                 interpolate_position,
                 // print_fps,
             ),
@@ -77,32 +77,16 @@ fn setup(
     let square_mesh = meshes.add(Mesh::from(bevy::math::primitives::Rectangle {
         half_size: square_size / 2.0,
     }));
-    let square_material_purple =
-        materials.add(ColorMaterial::from(Color::rgba(0.5, 0.0, 0.5, 0.0)));
     let square_material_blue = materials.add(ColorMaterial::from(Color::BLUE));
 
-    // Spawn the first square
+    // Spawn the square
     commands.spawn((
         CustomNodeBundle {
-            position: Position { x: 0.0, y: 0.0 },
+            position: Position { x: 0.0, y: 100.0 }, // Initially positioned
             sprite_bundle: MaterialMesh2dBundle {
                 mesh: Mesh2dHandle(square_mesh.clone()),
-                material: square_material_purple.clone(),
-                transform: Transform::from_xyz(0.0, 0.0, 0.0),
-                ..Default::default()
-            },
-        },
-        Square { id: 1 },
-    ));
-
-    // Spawn the second square, positioned above the first one
-    commands.spawn((
-        CustomNodeBundle {
-            position: Position { x: 0.0, y: 100.0 }, // Positioned 100 units above
-            sprite_bundle: MaterialMesh2dBundle {
-                mesh: Mesh2dHandle(square_mesh.clone()), // Clone the mesh handle
-                material: square_material_blue.clone(),  // Clone the material handle
-                transform: Transform::from_xyz(0.0, 100.0, 0.0), // 100 units above in the y-axis
+                material: square_material_blue.clone(),
+                transform: Transform::from_xyz(0.0, 100.0, 0.0),
                 ..Default::default()
             },
         },
@@ -141,48 +125,31 @@ fn mouse_button(
     }
 }
 
-fn update_position(
-    mut query: Query<(&Square, &mut Position, &mut Transform)>,
+fn update_target_position(
+    mut square_positions: ResMut<SquarePositions>,
     game_state: Res<GameState>,
     mouse_position: Res<MousePosition>,
 ) {
-    for (square, mut position, mut transform) in query.iter_mut() {
-        if game_state.is_dragging && square.id == 1 {
-            position.x = mouse_position.x;
-            position.y = mouse_position.y;
-        }
-        transform.translation.x = position.x;
-        transform.translation.y = position.y;
-    }
-}
-
-fn update_square_positions(
-    query: Query<(&Square, &Position)>,
-    mut square_positions: ResMut<SquarePositions>,
-) {
-    for (square, position) in query.iter() {
-        if square.id == 1 {
-            square_positions.first = Vec2::new(position.x, position.y);
-        } else if square.id == 2 {
-            square_positions.second = Vec2::new(position.x, position.y);
-        }
+    if game_state.is_dragging {
+        square_positions.target = Vec2::new(mouse_position.x, mouse_position.y);
     }
 }
 
 fn interpolate_position(
     mut query: Query<(&Square, &mut Position, &mut Transform)>,
-    square_positions: Res<SquarePositions>,
+    mut square_positions: ResMut<SquarePositions>,
 ) {
     let t = 0.3; // interpolation factor
 
     for (square, mut position, mut transform) in query.iter_mut() {
         if square.id == 2 {
-            // Interpolate the position of the second square towards the first square
-            let new_position = position.as_vec2().lerp(square_positions.first, t);
+            // Interpolate the position of the square towards the target position
+            let new_position = square_positions.current.lerp(square_positions.target, t);
             position.x = new_position.x;
             position.y = new_position.y;
             transform.translation.x = position.x;
             transform.translation.y = position.y;
+            square_positions.current = new_position;
         }
     }
 }
@@ -192,12 +159,5 @@ fn print_fps(diagnostics: Res<DiagnosticsStore>) {
         if let Some(average) = fps.average() {
             println!("FPS: {:.2}", average);
         }
-    }
-}
-
-// Helper function to convert Position to Vec2
-impl Position {
-    fn as_vec2(&self) -> Vec2 {
-        Vec2::new(self.x, self.y)
     }
 }
