@@ -38,7 +38,7 @@ struct CustomNodeBundle {
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin::default()))
+        .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin))
         .insert_resource(GameState {
             is_playing: true,
             is_dragging: false,
