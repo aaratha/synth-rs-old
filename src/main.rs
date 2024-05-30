@@ -1,10 +1,6 @@
-use bevy::math::primitives::Rectangle;
-use bevy::render::color::Color::Rgba;
-use bevy::ui::update;
-use bevy::{
-    prelude::*,
-    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
-};
+use bevy::math::prelude::*;
+use bevy::prelude::*;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 
 #[derive(Component, Debug)]
 struct Position {
@@ -23,12 +19,22 @@ pub struct GameState {
     pub is_playing: bool,
 }
 
+#[derive(Bundle)]
+struct CustomNodeBundle {
+    position: Position,
+    velocity: Velocity,
+    #[bundle()]
+    sprite_bundle: MaterialMesh2dBundle<ColorMaterial>,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup)
-        .add_systems(Update, (update_position, print_position, update_transform))
         .insert_resource(GameState { is_playing: true })
+        .add_systems(Startup, setup)
+        .add_systems(Update, update_position)
+        .add_systems(Update, update_transform)
+        .add_systems(Update, print_position)
         .run();
 }
 
@@ -40,21 +46,22 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     const PURPLE: Color = Color::rgba(1.0, 0.0, 1.0, 1.0);
-
     let square_size = Vec2::new(100.0, 100.0);
-    let square_mesh = meshes.add(Mesh::from(shape::Quad::new(square_size)));
+    let square_mesh = meshes.add(Mesh::from(bevy::math::primitives::Rectangle {
+        half_size: square_size / 2.0,
+    }));
     let square_material = materials.add(ColorMaterial::from(PURPLE));
 
-    commands.spawn((
-        MaterialMesh2dBundle {
+    commands.spawn(CustomNodeBundle {
+        position: Position { x: 0.0, y: 0.0 },
+        velocity: Velocity { x: 50.0, y: 50.0 },
+        sprite_bundle: MaterialMesh2dBundle {
             mesh: Mesh2dHandle(square_mesh),
             material: square_material,
-            transform: Transform::default(),
+            transform: Transform::from_xyz(0.0, 0.0, 0.0),
             ..Default::default()
         },
-        Position { x: 0.0, y: 0.0 },
-        Velocity { x: 50.0, y: 50.0 },
-    ));
+    });
 }
 
 fn update_position(mut query: Query<(&Velocity, &mut Position)>, time: Res<Time>) {
