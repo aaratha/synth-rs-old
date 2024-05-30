@@ -10,11 +10,6 @@ struct Position {
     y: f32,
 }
 
-#[derive(Component, Debug)]
-struct Square {
-    id: usize,
-}
-
 #[derive(Resource, Debug)]
 struct MousePosition {
     x: f32,
@@ -22,9 +17,10 @@ struct MousePosition {
 }
 
 #[derive(Resource, Debug)]
-struct SquarePositions {
+struct SquareResources {
     target: Vec2,
     current: Vec2,
+    angle: f32,
 }
 
 #[derive(Resource, Debug)]
@@ -48,9 +44,10 @@ fn main() {
             is_dragging: false,
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
-        .insert_resource(SquarePositions {
+        .insert_resource(SquareResources {
             target: Vec2::ZERO,
             current: Vec2::ZERO,
+            angle: 0.0,
         })
         .add_systems(Startup, setup)
         .add_systems(
@@ -73,25 +70,22 @@ fn setup(
 ) {
     commands.spawn(Camera2dBundle::default());
 
-    let square_size = Vec2::new(100.0, 100.0);
+    let square_size = Vec2::new(120.0, 160.0);
     let square_mesh = meshes.add(Mesh::from(bevy::math::primitives::Rectangle {
         half_size: square_size / 2.0,
     }));
     let square_material_blue = materials.add(ColorMaterial::from(Color::BLUE));
 
     // Spawn the square
-    commands.spawn((
-        CustomNodeBundle {
-            position: Position { x: 0.0, y: 100.0 }, // Initially positioned
-            sprite_bundle: MaterialMesh2dBundle {
-                mesh: Mesh2dHandle(square_mesh.clone()),
-                material: square_material_blue.clone(),
-                transform: Transform::from_xyz(0.0, 100.0, 0.0),
-                ..Default::default()
-            },
+    commands.spawn((CustomNodeBundle {
+        position: Position { x: 0.0, y: 100.0 }, // Initially positioned
+        sprite_bundle: MaterialMesh2dBundle {
+            mesh: Mesh2dHandle(square_mesh.clone()),
+            material: square_material_blue.clone(),
+            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+            ..Default::default()
         },
-        Square { id: 2 },
-    ));
+    },));
 }
 
 fn mouse_motion(
@@ -126,7 +120,7 @@ fn mouse_button(
 }
 
 fn update_target_position(
-    mut square_positions: ResMut<SquarePositions>,
+    mut square_positions: ResMut<SquareResources>,
     game_state: Res<GameState>,
     mouse_position: Res<MousePosition>,
 ) {
@@ -136,21 +130,22 @@ fn update_target_position(
 }
 
 fn interpolate_position(
-    mut query: Query<(&Square, &mut Position, &mut Transform)>,
-    mut square_positions: ResMut<SquarePositions>,
+    mut query: Query<(&mut Position, &mut Transform)>,
+    mut square_resources: ResMut<SquareResources>,
 ) {
     let t = 0.3; // interpolation factor
 
-    for (square, mut position, mut transform) in query.iter_mut() {
-        if square.id == 2 {
-            // Interpolate the position of the square towards the target position
-            let new_position = square_positions.current.lerp(square_positions.target, t);
-            position.x = new_position.x;
-            position.y = new_position.y;
-            transform.translation.x = position.x;
-            transform.translation.y = position.y;
-            square_positions.current = new_position;
-        }
+    for (mut position, mut transform) in query.iter_mut() {
+        // Interpolate the position of the square towards the target position
+        let delta = square_resources.target.x - square_resources.current.x;
+        square_resources.angle = delta / 400.0;
+        let new_position = square_resources.current.lerp(square_resources.target, t);
+        position.x = new_position.x;
+        position.y = new_position.y;
+        transform.translation.x = position.x;
+        transform.translation.y = position.y;
+        transform.rotation = Quat::from_rotation_z(square_resources.angle);
+        square_resources.current = new_position;
     }
 }
 
