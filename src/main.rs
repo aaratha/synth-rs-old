@@ -21,6 +21,7 @@ struct SquareResources {
     target: Vec2,
     current: Vec2,
     angle: f32,
+    scale: f32,
 }
 
 #[derive(Resource, Debug)]
@@ -52,6 +53,7 @@ fn main() {
             target: Vec2::ZERO,
             current: Vec2::ZERO,
             angle: 0.0,
+            scale: 1.0,
         })
         .add_systems(Startup, setup)
         .add_systems(
@@ -159,26 +161,37 @@ fn interpolate_position(
 fn wobble(
     time: Res<Time>,
     mut game_state: ResMut<GameState>,
-    mut square_resources: ResMut<SquareResources>,
     mut query: Query<(&mut Transform, &Position)>,
 ) {
     let decay_rate = 3.0;
-    let wobble_amplitude = 20.0;
+    let scale_rate = 6.0;
+    let wobble_amplitude = 0.8;
     let wobble_speed = 1.3;
+    let frequency = 20.0;
 
     if game_state.is_wobbling {
         game_state.wobble_time += wobble_speed * time.delta_seconds();
-        let wobble_factor = (game_state.wobble_time * wobble_amplitude).sin()
+        let wobble_factor = (game_state.wobble_time * frequency).sin()
+            * wobble_amplitude
             * (-decay_rate * game_state.wobble_time).exp();
 
+        let scale = 1.3;
+
         for (mut transform, position) in query.iter_mut() {
-            // Update the rotation around the square's own center
             transform.rotate_around(
                 Vec3::new(position.x, position.y, 0.0),
                 Quat::from_rotation_z(wobble_factor),
             );
+            transform.scale = Vec3::new(scale, scale, scale);
         }
     } else {
+        for (mut transform, _) in query.iter_mut() {
+            if transform.scale.x > 1.0 {
+                transform.scale = transform
+                    .scale
+                    .lerp(Vec3::ONE, time.delta_seconds() * scale_rate);
+            }
+        }
         game_state.wobble_time = 0.0;
     }
 }
