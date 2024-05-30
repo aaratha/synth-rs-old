@@ -27,6 +27,8 @@ struct SquareResources {
 pub struct GameState {
     pub is_playing: bool,
     pub is_dragging: bool,
+    pub is_wobbling: bool,
+    pub wobble_time: f32,
 }
 
 #[derive(Bundle)]
@@ -42,6 +44,8 @@ fn main() {
         .insert_resource(GameState {
             is_playing: true,
             is_dragging: false,
+            is_wobbling: false,
+            wobble_time: 0.0,
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
         .insert_resource(SquareResources {
@@ -57,6 +61,7 @@ fn main() {
                 mouse_button,
                 update_target_position,
                 interpolate_position,
+                wobble,
                 // print_fps,
             ),
         )
@@ -111,9 +116,11 @@ fn mouse_button(
         match ev.state {
             ButtonState::Pressed => {
                 game_state.is_dragging = true;
+                game_state.is_wobbling = true;
             }
             ButtonState::Released => {
                 game_state.is_dragging = false;
+                game_state.is_wobbling = false;
             }
         }
     }
@@ -146,6 +153,33 @@ fn interpolate_position(
         transform.translation.y = position.y;
         transform.rotation = Quat::from_rotation_z(square_resources.angle);
         square_resources.current = new_position;
+    }
+}
+
+fn wobble(
+    time: Res<Time>,
+    mut game_state: ResMut<GameState>,
+    mut square_resources: ResMut<SquareResources>,
+    mut query: Query<(&mut Transform, &Position)>,
+) {
+    let decay_rate = 3.0;
+    let wobble_amplitude = 20.0;
+    let wobble_speed = 1.3;
+
+    if game_state.is_wobbling {
+        game_state.wobble_time += wobble_speed * time.delta_seconds();
+        let wobble_factor = (game_state.wobble_time * wobble_amplitude).sin()
+            * (-decay_rate * game_state.wobble_time).exp();
+
+        for (mut transform, position) in query.iter_mut() {
+            // Update the rotation around the square's own center
+            transform.rotate_around(
+                Vec3::new(position.x, position.y, 0.0),
+                Quat::from_rotation_z(wobble_factor),
+            );
+        }
+    } else {
+        game_state.wobble_time = 0.0;
     }
 }
 
