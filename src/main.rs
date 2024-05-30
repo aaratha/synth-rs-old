@@ -200,14 +200,14 @@ fn scale(
     game_state: Res<GameState>,
     mut square_resources: ResMut<SquareResources>,
 ) {
-    let decay_rate = 3.0;
+    let scale_rate = 4.0;
     if game_state.is_wobbling {
         // Increase the scale up to 1.5
-        let scale_increase = 4.0 * time.delta_seconds();
+        let scale_increase = scale_rate * time.delta_seconds();
         square_resources.scale = (square_resources.scale + scale_increase).min(1.5);
     } else {
         // Gradually decrease the scale back to 1.0
-        let scale_decrease = 4.0 * time.delta_seconds();
+        let scale_decrease = scale_rate * time.delta_seconds();
         square_resources.scale = (square_resources.scale - scale_decrease).max(1.0);
     }
 }
