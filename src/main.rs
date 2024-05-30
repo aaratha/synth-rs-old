@@ -20,7 +20,8 @@ struct MousePosition {
 struct SquareResources {
     target: Vec2,
     current: Vec2,
-    angle: f32,
+    interpolation_angle: f32,
+    wobble_angle: f32,
     scale: f32,
 }
 
@@ -39,6 +40,11 @@ struct CustomNodeBundle {
     sprite_bundle: MaterialMesh2dBundle<ColorMaterial>,
 }
 
+#[derive(Default, Resource, Debug)]
+struct NodeChain {
+    nodes: Vec<Entity>,
+}
+
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FrameTimeDiagnosticsPlugin))
@@ -52,9 +58,11 @@ fn main() {
         .insert_resource(SquareResources {
             target: Vec2::ZERO,
             current: Vec2::ZERO,
-            angle: 0.0,
+            interpolation_angle: 0.0,
+            wobble_angle: 0.0,
             scale: 1.0,
         })
+        .insert_resource(NodeChain::default())
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -64,7 +72,8 @@ fn main() {
                 update_target_position,
                 interpolate_position,
                 wobble,
-                // print_fps,
+                update_transforms,
+                scale,
             ),
         )
         .run();
@@ -74,6 +83,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut node_chain: ResMut<NodeChain>,
 ) {
     commands.spawn(Camera2dBundle::default());
 
@@ -81,18 +91,27 @@ fn setup(
     let square_mesh = meshes.add(Mesh::from(bevy::math::primitives::Rectangle {
         half_size: square_size / 2.0,
     }));
-    let square_material_blue = materials.add(ColorMaterial::from(Color::BLUE));
+    let square_material = materials.add(ColorMaterial::from(Color::BLUE));
 
-    // Spawn the square
-    commands.spawn((CustomNodeBundle {
-        position: Position { x: 0.0, y: 100.0 }, // Initially positioned
-        sprite_bundle: MaterialMesh2dBundle {
-            mesh: Mesh2dHandle(square_mesh.clone()),
-            material: square_material_blue.clone(),
-            transform: Transform::from_xyz(0.0, 0.0, 0.0),
-            ..Default::default()
-        },
-    },));
+    for i in 0..5 {
+        let entity = commands
+            .spawn(CustomNodeBundle {
+                position: Position {
+                    x: i as f32 * 130.0,
+                    y: 0.0,
+                },
+                sprite_bundle: MaterialMesh2dBundle {
+                    mesh: Mesh2dHandle(square_mesh.clone()),
+                    material: square_material.clone(),
+                    transform: Transform::from_xyz(i as f32 * 130.0, 0.0, 0.0),
+                    ..Default::default()
+                },
+            })
+            .id();
+        node_chain.nodes.push(entity);
+    }
+
+    println!("NodeChain: {:?}", node_chain.nodes);
 }
 
 fn mouse_motion(
@@ -129,42 +148,33 @@ fn mouse_button(
 }
 
 fn update_target_position(
-    mut square_positions: ResMut<SquareResources>,
+    mut square_resources: ResMut<SquareResources>,
     game_state: Res<GameState>,
     mouse_position: Res<MousePosition>,
 ) {
     if game_state.is_dragging {
-        square_positions.target = Vec2::new(mouse_position.x, mouse_position.y);
+        square_resources.target = Vec2::new(mouse_position.x, mouse_position.y);
     }
 }
 
-fn interpolate_position(
-    mut query: Query<(&mut Position, &mut Transform)>,
-    mut square_resources: ResMut<SquareResources>,
-) {
+fn interpolate_position(mut square_resources: ResMut<SquareResources>, game_state: Res<GameState>) {
     let t = 0.3; // interpolation factor
 
-    for (mut position, mut transform) in query.iter_mut() {
-        // Interpolate the position of the square towards the target position
-        let delta = square_resources.target.x - square_resources.current.x;
-        square_resources.angle = delta / 400.0;
+    if game_state.is_dragging {
         let new_position = square_resources.current.lerp(square_resources.target, t);
-        position.x = new_position.x;
-        position.y = new_position.y;
-        transform.translation.x = position.x;
-        transform.translation.y = position.y;
-        transform.rotation = Quat::from_rotation_z(square_resources.angle);
         square_resources.current = new_position;
+
+        let delta = square_resources.target.x - square_resources.current.x;
+        square_resources.interpolation_angle = delta / 200.0;
     }
 }
 
 fn wobble(
     time: Res<Time>,
     mut game_state: ResMut<GameState>,
-    mut query: Query<(&mut Transform, &Position)>,
+    mut square_resources: ResMut<SquareResources>,
 ) {
     let decay_rate = 3.0;
-    let scale_rate = 6.0;
     let wobble_amplitude = 0.8;
     let wobble_speed = 1.3;
     let frequency = 20.0;
@@ -175,24 +185,46 @@ fn wobble(
             * wobble_amplitude
             * (-decay_rate * game_state.wobble_time).exp();
 
-        let scale = 1.3;
-
-        for (mut transform, position) in query.iter_mut() {
-            transform.rotate_around(
-                Vec3::new(position.x, position.y, 0.0),
-                Quat::from_rotation_z(wobble_factor),
-            );
-            transform.scale = Vec3::new(scale, scale, scale);
-        }
+        square_resources.wobble_angle = wobble_factor;
     } else {
-        for (mut transform, _) in query.iter_mut() {
-            if transform.scale.x > 1.0 {
-                transform.scale = transform
-                    .scale
-                    .lerp(Vec3::ONE, time.delta_seconds() * scale_rate);
-            }
-        }
+        // Smoothly interpolate wobble_angle to 0 instead of setting it abruptly
+        square_resources.wobble_angle = square_resources
+            .wobble_angle
+            .lerp(0.0, time.delta_seconds() * 6.0);
         game_state.wobble_time = 0.0;
+    }
+}
+
+fn scale(
+    time: Res<Time>,
+    game_state: Res<GameState>,
+    mut square_resources: ResMut<SquareResources>,
+) {
+    let decay_rate = 3.0;
+    if game_state.is_wobbling {
+        // Increase the scale up to 1.5
+        let scale_increase = 4.0 * time.delta_seconds();
+        square_resources.scale = (square_resources.scale + scale_increase).min(1.5);
+    } else {
+        // Gradually decrease the scale back to 1.0
+        let scale_decrease = 4.0 * time.delta_seconds();
+        square_resources.scale = (square_resources.scale - scale_decrease).max(1.0);
+    }
+}
+
+fn update_transforms(
+    mut query: Query<(&Position, &mut Transform)>,
+    square_resources: Res<SquareResources>,
+) {
+    for (position, mut transform) in query.iter_mut() {
+        transform.translation.x = square_resources.current.x;
+        transform.translation.y = square_resources.current.y;
+
+        transform.scale = Vec3::splat(square_resources.scale);
+
+        // Combine the angles from interpolation and wobble
+        let combined_angle = square_resources.interpolation_angle + square_resources.wobble_angle;
+        transform.rotation = Quat::from_rotation_z(combined_angle);
     }
 }
 
