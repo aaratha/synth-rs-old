@@ -1,5 +1,7 @@
 use bevy::input::mouse::MouseButtonInput;
 use bevy::prelude::*;
+use bevy::render::render_resource::resource_macros;
+use bevy::render::view::window;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::window::PrimaryWindow;
 
@@ -45,6 +47,11 @@ struct NodeChain {
     nodes: Vec<Entity>,
 }
 
+#[derive(Resource, Debug)]
+struct GridPositions {
+    positions: Vec<Vec2>,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -54,6 +61,15 @@ fn main() {
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
         .insert_resource(NodeChain::default())
+        .insert_resource(GridPositions {
+            positions: vec![
+                Vec2::new(-260.0, 0.0),
+                Vec2::new(-130.0, 0.0),
+                Vec2::new(0.0, 0.0),
+                Vec2::new(130.0, 0.0),
+                Vec2::new(260.0, 0.0),
+            ],
+        })
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -76,6 +92,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut node_chain: ResMut<NodeChain>,
+    grid_positions: Res<GridPositions>,
 ) {
     commands.spawn(Camera2dBundle::default());
 
@@ -165,10 +182,20 @@ fn update_target_position(
     game_state: Res<GameState>,
     mouse_position: Res<MousePosition>,
 ) {
-    if let Some(selected_node) = game_state.selected_node {
-        if let Ok(mut node_resources) = query.get_mut(selected_node) {
-            if game_state.is_dragging {
-                node_resources.target = Vec2::new(mouse_position.x, mouse_position.y);
+    for mut node_resources in query.iter_mut() {
+        if game_state.is_dragging {
+            node_resources.target = Vec2::new(mouse_position.x, mouse_position.y);
+        } else {
+            if node_resources.target.x < 40.0 {
+                node_resources.target = Vec2::new(20.0, 100.0);
+            } else if node_resources.target.x > 40.0 && node_resources.target.x < 80.0 {
+                node_resources.target = Vec2::new(60.0, 100.0);
+            } else if node_resources.target.x > 80.0 && node_resources.target.x < 120.0 {
+                node_resources.target = Vec2::new(100.0, 100.0);
+            } else if node_resources.target.x > 120.0 && node_resources.target.x < 160.0 {
+                node_resources.target = Vec2::new(140.0, 100.0);
+            } else if node_resources.target.x > 160.0 {
+                node_resources.target = Vec2::new(180.0, 100.0);
             }
         }
     }
