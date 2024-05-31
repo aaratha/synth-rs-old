@@ -81,6 +81,7 @@ fn main() {
                 wobble,
                 scale,
                 update_transforms,
+                snap_to_grid,
             ),
         )
         .run();
@@ -177,25 +178,36 @@ fn update_target_position(
     mut query: Query<(&mut NodeResources, &Transform)>,
     game_state: Res<GameState>,
     mouse_position: Res<MousePosition>,
-    grid_positions: Res<GridPositions>,
 ) {
     if let Some(selected_node) = game_state.selected_node {
         if let Ok((mut node_resources, _)) = query.get_mut(selected_node) {
             if game_state.is_dragging {
-                // Snap to the nearest grid point
-                let mut closest_position = Vec2::ZERO;
-                let mut closest_distance = f32::MAX;
-
-                for &grid_pos in grid_positions.positions.iter() {
-                    let distance = Vec2::new(mouse_position.x, mouse_position.y).distance(grid_pos);
-                    if distance < closest_distance {
-                        closest_distance = distance;
-                        closest_position = grid_pos;
-                    }
-                }
-
-                node_resources.target = closest_position;
+                node_resources.target = Vec2::new(mouse_position.x, mouse_position.y);
             }
+        }
+    }
+}
+
+fn snap_to_grid(
+    mut query: Query<&mut NodeResources>,
+    game_state: Res<GameState>,
+    grid_positions: Res<GridPositions>,
+) {
+    if !game_state.is_dragging {
+        for mut node_resources in query.iter_mut() {
+            // Snap to the nearest grid point
+            let mut closest_position = Vec2::ZERO;
+            let mut closest_distance = f32::MAX;
+
+            for &grid_pos in grid_positions.positions.iter() {
+                let distance = node_resources.current.distance(grid_pos);
+                if distance < closest_distance {
+                    closest_distance = distance;
+                    closest_position = grid_pos;
+                }
+            }
+
+            node_resources.target = closest_position;
         }
     }
 }
