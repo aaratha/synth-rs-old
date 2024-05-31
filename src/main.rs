@@ -190,6 +190,7 @@ fn update_target_position(
 
 fn snap_to_grid(
     mut query: Query<&mut NodeResources>,
+    mouse_position: Res<MousePosition>,
     mut node_chain: ResMut<NodeChain>,
     grid_positions: Res<GridPositions>,
     game_state: Res<GameState>,
@@ -200,23 +201,30 @@ fn snap_to_grid(
         for entity in node_chain.nodes.iter() {
             if let Ok(mut node_resources) = query.get_mut(*entity) {
                 // Snap to the nearest grid point that is not occupied
-                let mut closest_position = Vec2::ZERO;
-                let mut closest_distance = f32::MAX;
+                if game_state.is_dragging {
+                    if let Some(selected_node) = game_state.selected_node {
+                        if let Ok(mut node_resources) = query.get_mut(selected_node) {
+                            node_resources.target = Vec2::new(mouse_position.x, mouse_position.y);
+                        }
+                    }
+                } else {
+                    let mut closest_position = Vec2::ZERO;
+                    let mut closest_distance = f32::MAX;
 
-                if game_state.is_dragging {}
-                for &grid_pos in grid_positions.positions.iter() {
-                    if occupied_positions.contains(&grid_pos) {
-                        continue;
+                    for &grid_pos in grid_positions.positions.iter() {
+                        if occupied_positions.contains(&grid_pos) {
+                            continue;
+                        }
+                        let distance = node_resources.current.distance(grid_pos);
+                        if distance < closest_distance {
+                            closest_distance = distance;
+                            closest_position = grid_pos;
+                        }
                     }
-                    let distance = node_resources.current.distance(grid_pos);
-                    if distance < closest_distance {
-                        closest_distance = distance;
-                        closest_position = grid_pos;
-                    }
+
+                    node_resources.target = closest_position;
+                    occupied_positions.push(closest_position);
                 }
-
-                node_resources.target = closest_position;
-                occupied_positions.push(closest_position);
             }
         }
     }
