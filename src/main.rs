@@ -174,17 +174,15 @@ fn update_target_position(
     }
 }
 
-fn interpolate_position(mut query: Query<&mut NodeResources>, game_state: Res<GameState>) {
+fn interpolate_position(mut query: Query<&mut NodeResources>) {
     let t = 0.3; // interpolation factor
 
     for mut node_resources in query.iter_mut() {
-        if game_state.is_dragging {
-            let new_position = node_resources.current.lerp(node_resources.target, t);
-            node_resources.current = new_position;
+        let new_position = node_resources.current.lerp(node_resources.target, t);
+        node_resources.current = new_position;
 
-            let delta = node_resources.target.x - node_resources.current.x;
-            node_resources.interpolation_angle = delta / 200.0;
-        }
+        let delta = node_resources.target.x - node_resources.current.x;
+        node_resources.interpolation_angle = delta / 200.0;
     }
 }
 
