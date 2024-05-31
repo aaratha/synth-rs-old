@@ -81,7 +81,6 @@ fn main() {
                 wobble,
                 scale,
                 update_transforms,
-                // print_fps,
             ),
         )
         .run();
@@ -102,22 +101,19 @@ fn setup(
     }));
     let square_material = materials.add(ColorMaterial::from(Color::BLUE));
 
-    for i in 0..5 {
+    for &pos in grid_positions.positions.iter() {
         let entity = commands
             .spawn(CustomNodeBundle {
-                position: Position {
-                    x: i as f32 * 130.0,
-                    y: 0.0,
-                },
+                position: Position { x: pos.x, y: pos.y },
                 sprite_bundle: MaterialMesh2dBundle {
                     mesh: Mesh2dHandle(square_mesh.clone()),
                     material: square_material.clone(),
-                    transform: Transform::from_xyz(i as f32 * 130.0, 0.0, 0.0),
+                    transform: Transform::from_xyz(pos.x, pos.y, 0.0),
                     ..Default::default()
                 },
                 node_resources: NodeResources {
-                    target: Vec2::ZERO,
-                    current: Vec2::new(i as f32 * 130.0, 0.0),
+                    target: pos,
+                    current: pos,
                     interpolation_angle: 0.0,
                     wobble_angle: 0.0,
                     scale: 1.0,
@@ -178,24 +174,27 @@ fn mouse_button(
 }
 
 fn update_target_position(
-    mut query: Query<&mut NodeResources>,
+    mut query: Query<(&mut NodeResources, &Transform)>,
     game_state: Res<GameState>,
     mouse_position: Res<MousePosition>,
+    grid_positions: Res<GridPositions>,
 ) {
-    for mut node_resources in query.iter_mut() {
-        if game_state.is_dragging {
-            node_resources.target = Vec2::new(mouse_position.x, mouse_position.y);
-        } else {
-            if node_resources.target.x < 40.0 {
-                node_resources.target = Vec2::new(20.0, 100.0);
-            } else if node_resources.target.x > 40.0 && node_resources.target.x < 80.0 {
-                node_resources.target = Vec2::new(60.0, 100.0);
-            } else if node_resources.target.x > 80.0 && node_resources.target.x < 120.0 {
-                node_resources.target = Vec2::new(100.0, 100.0);
-            } else if node_resources.target.x > 120.0 && node_resources.target.x < 160.0 {
-                node_resources.target = Vec2::new(140.0, 100.0);
-            } else if node_resources.target.x > 160.0 {
-                node_resources.target = Vec2::new(180.0, 100.0);
+    if let Some(selected_node) = game_state.selected_node {
+        if let Ok((mut node_resources, _)) = query.get_mut(selected_node) {
+            if game_state.is_dragging {
+                // Snap to the nearest grid point
+                let mut closest_position = Vec2::ZERO;
+                let mut closest_distance = f32::MAX;
+
+                for &grid_pos in grid_positions.positions.iter() {
+                    let distance = Vec2::new(mouse_position.x, mouse_position.y).distance(grid_pos);
+                    if distance < closest_distance {
+                        closest_distance = distance;
+                        closest_position = grid_pos;
+                    }
+                }
+
+                node_resources.target = closest_position;
             }
         }
     }
