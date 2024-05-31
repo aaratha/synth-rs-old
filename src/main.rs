@@ -190,24 +190,34 @@ fn update_target_position(
 
 fn snap_to_grid(
     mut query: Query<&mut NodeResources>,
-    game_state: Res<GameState>,
+    mut node_chain: ResMut<NodeChain>,
     grid_positions: Res<GridPositions>,
+    game_state: Res<GameState>,
 ) {
-    if !game_state.is_dragging {
-        for mut node_resources in query.iter_mut() {
-            // Snap to the nearest grid point
-            let mut closest_position = Vec2::ZERO;
-            let mut closest_distance = f32::MAX;
+    if !node_chain.nodes.is_empty() {
+        let mut occupied_positions = vec![];
 
-            for &grid_pos in grid_positions.positions.iter() {
-                let distance = node_resources.current.distance(grid_pos);
-                if distance < closest_distance {
-                    closest_distance = distance;
-                    closest_position = grid_pos;
+        for entity in node_chain.nodes.iter() {
+            if let Ok(mut node_resources) = query.get_mut(*entity) {
+                // Snap to the nearest grid point that is not occupied
+                let mut closest_position = Vec2::ZERO;
+                let mut closest_distance = f32::MAX;
+
+                if game_state.is_dragging {}
+                for &grid_pos in grid_positions.positions.iter() {
+                    if occupied_positions.contains(&grid_pos) {
+                        continue;
+                    }
+                    let distance = node_resources.current.distance(grid_pos);
+                    if distance < closest_distance {
+                        closest_distance = distance;
+                        closest_position = grid_pos;
+                    }
                 }
-            }
 
-            node_resources.target = closest_position;
+                node_resources.target = closest_position;
+                occupied_positions.push(closest_position);
+            }
         }
     }
 }
