@@ -97,18 +97,21 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     let square_size = Vec2::new(120.0, 160.0);
-    let square_mesh = meshes.add(Mesh::from(bevy::math::primitives::Rectangle {
+    let square_mesh = meshes.add(Mesh::from(Rectangle {
         half_size: square_size / 2.0,
     }));
-    let square_material = materials.add(ColorMaterial::from(Color::BLUE));
 
-    for &pos in grid_positions.positions.iter() {
+    for (i, &pos) in grid_positions.positions.iter().enumerate() {
+        // Create a unique color for each node
+        let color = Color::hsl((i as f32 * 45.0) % 360.0, 0.7, 0.5);
+        let square_material = materials.add(ColorMaterial::from(color));
+
         let entity = commands
             .spawn(CustomNodeBundle {
                 position: Position { x: pos.x, y: pos.y },
                 sprite_bundle: MaterialMesh2dBundle {
                     mesh: Mesh2dHandle(square_mesh.clone()),
-                    material: square_material.clone(),
+                    material: square_material,
                     transform: Transform::from_xyz(pos.x, pos.y, 0.0),
                     ..Default::default()
                 },
@@ -125,8 +128,6 @@ fn setup(
             .id();
         node_chain.nodes.push(entity);
     }
-
-    println!("NodeChain: {:?}", node_chain.nodes);
 }
 
 fn mouse_motion(
@@ -200,7 +201,6 @@ fn snap_to_grid(
 
         for entity in node_chain.nodes.iter() {
             if let Ok(mut node_resources) = query.get_mut(*entity) {
-                // Snap to the nearest grid point that is not occupied
                 if game_state.is_dragging {
                     if let Some(selected_node) = game_state.selected_node {
                         if let Ok(mut node_resources) = query.get_mut(selected_node) {
@@ -215,7 +215,7 @@ fn snap_to_grid(
                         if occupied_positions.contains(&grid_pos) {
                             continue;
                         }
-                        let distance = node_resources.current.distance(grid_pos);
+                        let distance = node_resources.target.distance(grid_pos);
                         if distance < closest_distance {
                             closest_distance = distance;
                             closest_position = grid_pos;
@@ -296,7 +296,10 @@ fn scale(time: Res<Time>, mut query: Query<&mut NodeResources>, game_state: Res<
     }
 }
 
-fn update_transforms(mut query: Query<(&Position, &mut Transform, &NodeResources)>) {
+fn update_transforms(
+    mut query: Query<(&Position, &mut Transform, &NodeResources)>,
+    game_state: Res<GameState>,
+) {
     for (_position, mut transform, node_resources) in query.iter_mut() {
         transform.translation.x = node_resources.current.x;
         transform.translation.y = node_resources.current.y;
@@ -305,5 +308,15 @@ fn update_transforms(mut query: Query<(&Position, &mut Transform, &NodeResources
 
         let combined_angle = node_resources.interpolation_angle + node_resources.wobble_angle;
         transform.rotation = Quat::from_rotation_z(combined_angle);
+
+        // Reset z-level for all nodes
+        transform.translation.z = 0.0;
+    }
+
+    if let Some(selected_node) = game_state.selected_node {
+        if let Ok((_position, mut transform, _node_resources)) = query.get_mut(selected_node) {
+            // Set z-level for the selected node
+            transform.translation.z = 1.0;
+        }
     }
 }
