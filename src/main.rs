@@ -188,21 +188,30 @@ fn interpolate_position(mut query: Query<&mut NodeResources>, game_state: Res<Ga
     }
 }
 
-fn wobble(time: Res<Time>, mut query: Query<&mut NodeResources>) {
-    let decay_rate = 3.0;
+fn wobble(time: Res<Time>, mut query: Query<&mut NodeResources>, game_state: Res<GameState>) {
+    let decay_rate = 5.0;
     let wobble_amplitude = 0.8;
     let wobble_speed = 1.3;
     let frequency = 20.0;
 
-    for mut node_resources in query.iter_mut() {
-        if node_resources.is_wobbling {
-            node_resources.wobble_time += wobble_speed * time.delta_seconds();
-            let wobble_factor = (node_resources.wobble_time * frequency).sin()
-                * wobble_amplitude
-                * (-decay_rate * node_resources.wobble_time).exp();
+    if let Some(selected_node) = game_state.selected_node {
+        if let Ok(mut node_resources) = query.get_mut(selected_node) {
+            if node_resources.is_wobbling {
+                node_resources.wobble_time += wobble_speed * time.delta_seconds();
+                let wobble_factor = (node_resources.wobble_time * frequency).sin()
+                    * wobble_amplitude
+                    * (-decay_rate * node_resources.wobble_time).exp();
 
-            node_resources.wobble_angle = wobble_factor;
-        } else {
+                node_resources.wobble_angle = wobble_factor;
+            } else {
+                node_resources.wobble_angle = node_resources
+                    .wobble_angle
+                    .lerp(0.0, time.delta_seconds() * 6.0);
+                node_resources.wobble_time = 0.0;
+            }
+        }
+    } else {
+        for mut node_resources in query.iter_mut() {
             node_resources.wobble_angle = node_resources
                 .wobble_angle
                 .lerp(0.0, time.delta_seconds() * 6.0);
@@ -211,14 +220,22 @@ fn wobble(time: Res<Time>, mut query: Query<&mut NodeResources>) {
     }
 }
 
-fn scale(time: Res<Time>, mut query: Query<&mut NodeResources>) {
+fn scale(time: Res<Time>, mut query: Query<&mut NodeResources>, game_state: Res<GameState>) {
     let scale_rate = 4.0;
 
-    for mut node_resources in query.iter_mut() {
-        if node_resources.is_wobbling {
-            let scale_increase = scale_rate * time.delta_seconds();
-            node_resources.scale = (node_resources.scale + scale_increase).min(1.5);
-        } else {
+    if let Some(selected_node) = game_state.selected_node {
+        if let Ok(mut node_resources) = query.get_mut(selected_node) {
+            if node_resources.is_wobbling {
+                let scale_increase = scale_rate * time.delta_seconds();
+                node_resources.scale = (node_resources.scale + scale_increase).min(1.3);
+            } else {
+                let scale_decrease = scale_rate * time.delta_seconds();
+                node_resources.scale = (node_resources.scale - scale_decrease).max(1.0);
+            }
+        }
+    } else {
+        // When no node is selected, gradually decrease the scale of all nodes back to 1.0
+        for mut node_resources in query.iter_mut() {
             let scale_decrease = scale_rate * time.delta_seconds();
             node_resources.scale = (node_resources.scale - scale_decrease).max(1.0);
         }
