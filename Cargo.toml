@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 bevy = "0.13.2"
+bevy_fundsp = "0.4.0"
 sdl2 = "0.36.0"
