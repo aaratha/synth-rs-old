@@ -1,17 +1,16 @@
-use bevy::audio::AddAudioSource;
-use bevy::audio::AudioPlugin;
-use bevy::audio::Source;
+use bevy::audio::{AddAudioSource, AudioPlugin, Source};
 use bevy::input::mouse::MouseButtonInput;
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::utils::Duration;
 use bevy::window::PrimaryWindow;
+use std::time::Instant;
 
 // structure:
 // leftmost card is the oscillator, all other cards are modifiers
 // different oscillators, different fms, different envelopes
-// different sequences, difference sequence modifiers
+// different sequences, different sequence modifiers
 // global modifier cards for things like bpm
 
 #[derive(Component, Debug)]
@@ -139,6 +138,8 @@ enum NodeType {
     Sequencer {
         sequence: Vec<f32>,
         current_index: usize,
+        bpm: f32,
+        last_played: Instant,
     },
 }
 
@@ -226,6 +227,8 @@ fn setup(
             NodeType::Sequencer {
                 sequence: vec![440.0, 880.0, 660.0],
                 current_index: 0,
+                bpm: 120.0,
+                last_played: Instant::now(),
             }
         };
 
@@ -356,7 +359,7 @@ fn snap_to_grid(
 }
 
 fn interpolate_position(mut query: Query<&mut NodeResources>) {
-    let t = 0.3; // interpolation factor
+    let t = 0.4; // interpolation factor
 
     for mut node_resources in query.iter_mut() {
         let new_position = node_resources.current.lerp(node_resources.target, t);
@@ -464,23 +467,49 @@ fn update_node_chain(
 
 fn update_audio(
     node_chain: Res<NodeChain>,
-    query: Query<(Entity, &NodeResources, &NodeType), Without<AudioPlayed>>,
+    mut query: Query<(Entity, &NodeResources, &mut NodeType), Without<AudioPlayed>>,
     mut commands: Commands,
     mut audio_assets: ResMut<Assets<SineAudio>>,
 ) {
-    for &entity in node_chain.nodes.iter() {
-        if let Ok((_entity, _node_resources, node_type)) = query.get(entity) {
-            if let NodeType::Oscillator { frequency } = node_type {
-                let audio_handle = audio_assets.add(SineAudio {
-                    frequency: *frequency,
-                });
-                commands.spawn(AudioSourceBundle {
-                    source: audio_handle,
-                    ..default()
-                });
+    let current_time = Instant::now();
 
-                // Mark this entity as having its audio played
-                commands.entity(entity).insert(AudioPlayed);
+    for &entity in node_chain.nodes.iter() {
+        if let Ok((_entity, _node_resources, mut node_type)) = query.get_mut(entity) {
+            match &mut *node_type {
+                NodeType::Oscillator { frequency } => {
+                    let audio_handle = audio_assets.add(SineAudio {
+                        frequency: *frequency,
+                    });
+                    commands.spawn(AudioSourceBundle {
+                        source: audio_handle,
+                        ..default()
+                    });
+
+                    // Mark this entity as having its audio played
+                    commands.entity(entity).insert(AudioPlayed);
+                }
+                NodeType::Sequencer {
+                    sequence,
+                    current_index,
+                    bpm,
+                    last_played,
+                } => {
+                    let interval = 60.0 / *bpm as f32;
+
+                    if current_time.duration_since(*last_played).as_secs_f32() >= interval {
+                        let frequency = sequence[*current_index];
+                        let audio_handle = audio_assets.add(SineAudio { frequency });
+                        commands.spawn(AudioSourceBundle {
+                            source: audio_handle,
+                            ..default()
+                        });
+
+                        // Update the sequencer's state
+                        *current_index = (*current_index + 1) % sequence.len();
+                        *last_played = current_time;
+                        commands.entity(entity).insert(AudioPlayed);
+                    }
+                }
             }
         }
     }
