@@ -133,9 +133,13 @@ impl Decodable for SineAudio {
 
 #[derive(Component, Debug)]
 enum NodeType {
-    Oscillator { frequency: f32 },
-    Sequencer { sequence: Vec<f32> },
-    // Add other node types here as needed
+    Oscillator {
+        frequency: f32,
+    },
+    Sequencer {
+        sequence: Vec<f32>,
+        current_index: usize,
+    },
 }
 
 #[derive(Component)]
@@ -212,11 +216,17 @@ fn setup(
         let color = Color::hsl((i as f32 * 45.0) % 360.0, 0.7, 0.5);
         let square_material = materials.add(ColorMaterial::from(color));
 
-        let node_type = if i % 2 == 0 {
+        let node_type = if i == 0 {
             NodeType::Oscillator { frequency: 440.0 }
-        } else {
-            // Add other node types here as needed
+        } else if i == 1 {
+            NodeType::Oscillator { frequency: 660.0 }
+        } else if i == 2 {
             NodeType::Oscillator { frequency: 880.0 }
+        } else {
+            NodeType::Sequencer {
+                sequence: vec![440.0, 880.0, 660.0],
+                current_index: 0,
+            }
         };
 
         let entity = commands
