@@ -40,6 +40,7 @@ struct MousePosition {
 struct GameState {
     pub is_dragging: bool,
     pub selected_node: Option<Entity>,
+    pub updating_target: bool,
 }
 
 #[derive(Bundle)]
@@ -155,6 +156,7 @@ fn main() {
         .insert_resource(GameState {
             is_dragging: false,
             selected_node: None,
+            updating_target: false,
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
         .insert_resource(Nodes::default())
@@ -190,8 +192,8 @@ fn main() {
                 scale,
                 update_transforms,
                 snap_to_grid,
-                update_node_chain,
-                update_audio,
+                update_node_chain.run_if(updating_chain),
+                update_audio.run_if(updating_chain),
             ),
         )
         .run();
@@ -296,7 +298,9 @@ fn mouse_button(
                 for (_entity, _transform, mut node_resources) in query.iter_mut() {
                     node_resources.is_wobbling = false;
                 }
+                println!("Released");
                 game_state.selected_node = None;
+                game_state.updating_target = true;
             }
         }
     }
@@ -452,6 +456,7 @@ fn update_transforms(
 fn update_node_chain(
     mut node_chain: ResMut<NodeChain>,
     grid_positions: Res<GridPositions>,
+    mut game_state: ResMut<GameState>,
     query: Query<(Entity, &NodeResources)>,
 ) {
     for (entity, node_resources) in query.iter() {
@@ -463,6 +468,11 @@ fn update_node_chain(
             // println!("Node chain: {:?}", node_chain.nodes);
         }
     }
+    println!("Node chain: {:?}", node_chain.nodes);
+}
+
+fn updating_chain(game_state: Res<GameState>) -> bool {
+    game_state.updating_target
 }
 
 fn update_audio(
@@ -470,6 +480,7 @@ fn update_audio(
     mut query: Query<(Entity, &NodeResources, &mut NodeType), Without<AudioPlayed>>,
     mut commands: Commands,
     mut audio_assets: ResMut<Assets<SineAudio>>,
+    mut game_state: ResMut<GameState>,
 ) {
     let current_time = Instant::now();
 
@@ -477,6 +488,8 @@ fn update_audio(
         if let Ok((_entity, _node_resources, mut node_type)) = query.get_mut(entity) {
             match &mut *node_type {
                 NodeType::Oscillator { frequency } => {
+                    // Mark this entity as having its audio played
+                    commands.entity(entity).insert(AudioPlayed);
                     let audio_handle = audio_assets.add(SineAudio {
                         frequency: *frequency,
                     });
@@ -484,9 +497,6 @@ fn update_audio(
                         source: audio_handle,
                         ..default()
                     });
-
-                    // Mark this entity as having its audio played
-                    commands.entity(entity).insert(AudioPlayed);
                 }
                 NodeType::Sequencer {
                     sequence,
@@ -513,4 +523,5 @@ fn update_audio(
             }
         }
     }
+    game_state.updating_target = false
 }
