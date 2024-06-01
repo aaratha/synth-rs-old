@@ -41,6 +41,9 @@ struct GameState {
     pub is_dragging: bool,
     pub selected_node: Option<Entity>,
     pub updating_target: bool,
+    pub updated_beat: bool,
+    pub updated_audio: bool,
+    pub updated_chain: bool,
 }
 
 #[derive(Bundle)]
@@ -157,6 +160,9 @@ fn main() {
             is_dragging: false,
             selected_node: None,
             updating_target: false,
+            updated_beat: false,
+            updated_audio: false,
+            updated_chain: false,
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
         .insert_resource(Nodes::default())
@@ -192,6 +198,7 @@ fn main() {
                 scale,
                 update_transforms,
                 snap_to_grid,
+                update_check,
                 update_node_chain.run_if(updating_chain),
                 update_audio.run_if(updating_chain),
             ),
@@ -205,7 +212,7 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut nodes: ResMut<Nodes>,
     grid_positions: Res<GridPositions>,
-    mut audio_assets: ResMut<Assets<SineAudio>>,
+    audio_assets: Res<Assets<SineAudio>>,
 ) {
     commands.spawn(Camera2dBundle::default());
 
@@ -469,10 +476,23 @@ fn update_node_chain(
         }
     }
     println!("Node chain: {:?}", node_chain.nodes);
+    game_state.updated_chain = true;
 }
 
 fn updating_chain(game_state: Res<GameState>) -> bool {
     game_state.updating_target
+}
+
+fn update_check(mut game_state: ResMut<GameState>) {
+    if game_state.updating_target && game_state.updated_chain && game_state.updated_audio {
+        game_state.updating_target = false;
+        game_state.updated_chain = false;
+        game_state.updated_audio = false;
+    }
+}
+
+fn updating_beat(game_state: Res<GameState>) -> bool {
+    game_state.updated_beat
 }
 
 fn update_audio(
@@ -503,6 +523,31 @@ fn update_audio(
                     current_index,
                     bpm,
                     last_played,
+                } => {}
+            }
+        }
+    }
+    game_state.updated_audio = true
+}
+
+fn update_sequence(
+    node_chain: Res<NodeChain>,
+    mut query: Query<(Entity, &NodeResources, &mut NodeType), Without<AudioPlayed>>,
+    mut commands: Commands,
+    mut audio_assets: ResMut<Assets<SineAudio>>,
+    mut game_state: ResMut<GameState>,
+) {
+    let current_time = Instant::now();
+
+    for &entity in node_chain.nodes.iter() {
+        if let Ok((_entity, _node_resources, mut node_type)) = query.get_mut(entity) {
+            match &mut *node_type {
+                NodeType::Oscillator { frequency } => {}
+                NodeType::Sequencer {
+                    sequence,
+                    current_index,
+                    bpm,
+                    last_played,
                 } => {
                     let interval = 60.0 / *bpm as f32;
 
@@ -523,5 +568,4 @@ fn update_audio(
             }
         }
     }
-    game_state.updating_target = false
 }
