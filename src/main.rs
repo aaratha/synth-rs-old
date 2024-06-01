@@ -8,6 +8,12 @@ use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::utils::Duration;
 use bevy::window::PrimaryWindow;
 
+// structure:
+// leftmost card is the oscillator, all other cards are modifiers
+// different oscillators, different fms, different envelopes
+// different sequences, difference sequence modifiers
+// global modifier cards for things like bpm
+
 #[derive(Component, Debug)]
 struct Position {
     x: f32,
@@ -44,6 +50,7 @@ struct CustomNodeBundle {
     #[bundle()]
     sprite_bundle: MaterialMesh2dBundle<ColorMaterial>,
     node_resources: NodeResources,
+    node_type: NodeType,
 }
 
 #[derive(Default, Resource, Debug)]
@@ -68,18 +75,14 @@ struct SineAudio {
 }
 
 struct SineDecoder {
-    // how far along one period the wave is (between 0 and 1)
     current_progress: f32,
-    // how much we move along the period every frame
     progress_per_frame: f32,
-    // how long a period is
     period: f32,
     sample_rate: u32,
 }
 
 impl SineDecoder {
     fn new(frequency: f32) -> Self {
-        // standard sample rate for most recordings
         let sample_rate = 44_100;
         SineDecoder {
             current_progress: 0.,
@@ -90,10 +93,8 @@ impl SineDecoder {
     }
 }
 
-// The decoder must implement iterator so that it can implement `Decodable`.
 impl Iterator for SineDecoder {
     type Item = f32;
-
     fn next(&mut self) -> Option<Self::Item> {
         self.current_progress += self.progress_per_frame;
         // we loop back round to 0 to avoid floating point inaccuracies
@@ -101,8 +102,7 @@ impl Iterator for SineDecoder {
         Some(f32::sin(self.period * self.current_progress))
     }
 }
-// `Source` is what allows the audio source to be played by bevy.
-// This trait provides information on the audio.
+
 impl Source for SineDecoder {
     fn current_frame_len(&self) -> Option<usize> {
         None
@@ -121,7 +121,6 @@ impl Source for SineDecoder {
     }
 }
 
-// Finally `Decodable` can be implemented for our `SineAudio`.
 impl Decodable for SineAudio {
     type Decoder = SineDecoder;
 
@@ -131,6 +130,16 @@ impl Decodable for SineAudio {
         SineDecoder::new(self.frequency)
     }
 }
+
+#[derive(Component, Debug)]
+enum NodeType {
+    Oscillator { frequency: f32 },
+    Sequencer { sequence: Vec<f32> },
+    // Add other node types here as needed
+}
+
+#[derive(Component)]
+struct AudioPlayed;
 
 fn main() {
     App::new()
@@ -177,6 +186,7 @@ fn main() {
                 update_transforms,
                 snap_to_grid,
                 update_node_chain,
+                update_audio,
             ),
         )
         .run();
@@ -202,6 +212,13 @@ fn setup(
         let color = Color::hsl((i as f32 * 45.0) % 360.0, 0.7, 0.5);
         let square_material = materials.add(ColorMaterial::from(color));
 
+        let node_type = if i % 2 == 0 {
+            NodeType::Oscillator { frequency: 440.0 }
+        } else {
+            // Add other node types here as needed
+            NodeType::Oscillator { frequency: 880.0 }
+        };
+
         let entity = commands
             .spawn(CustomNodeBundle {
                 position: Position { x: pos.x, y: pos.y },
@@ -220,18 +237,11 @@ fn setup(
                     wobble_time: 0.0,
                     is_wobbling: false,
                 },
+                node_type,
             })
             .id();
         nodes.nodes.push(entity);
     }
-    // add a `SineAudio` to the asset server so that it can be played
-    let audio_handle = audio_assets.add(SineAudio {
-        frequency: 440., //this is the frequency of A4
-    });
-    commands.spawn(AudioSourceBundle {
-        source: audio_handle,
-        ..default()
-    });
 }
 
 fn mouse_motion(
@@ -438,6 +448,30 @@ fn update_node_chain(
         {
             node_chain.nodes.push(entity);
             // println!("Node chain: {:?}", node_chain.nodes);
+        }
+    }
+}
+
+fn update_audio(
+    node_chain: Res<NodeChain>,
+    query: Query<(Entity, &NodeResources, &NodeType), Without<AudioPlayed>>,
+    mut commands: Commands,
+    mut audio_assets: ResMut<Assets<SineAudio>>,
+) {
+    for &entity in node_chain.nodes.iter() {
+        if let Ok((_entity, _node_resources, node_type)) = query.get(entity) {
+            if let NodeType::Oscillator { frequency } = node_type {
+                let audio_handle = audio_assets.add(SineAudio {
+                    frequency: *frequency,
+                });
+                commands.spawn(AudioSourceBundle {
+                    source: audio_handle,
+                    ..default()
+                });
+
+                // Mark this entity as having its audio played
+                commands.entity(entity).insert(AudioPlayed);
+            }
         }
     }
 }
