@@ -4151,6 +4151,7 @@ version = "0.1.0"
 dependencies = [
  "bevy 0.13.2",
  "bevy_fundsp",
+ "cpal",
  "sdl2",
 ]
 

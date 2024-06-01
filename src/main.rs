@@ -1,8 +1,11 @@
+use bevy::audio::AddAudioSource;
+use bevy::audio::AudioPlugin;
+use bevy::audio::Source;
 use bevy::input::mouse::MouseButtonInput;
 use bevy::prelude::*;
-use bevy::render::render_resource::resource_macros;
-use bevy::render::view::window;
+use bevy::reflect::TypePath;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use bevy::utils::Duration;
 use bevy::window::PrimaryWindow;
 
 #[derive(Component, Debug)]
@@ -37,9 +40,21 @@ struct GameState {
 #[derive(Bundle)]
 struct CustomNodeBundle {
     position: Position,
+    // class: Oscillator
     #[bundle()]
     sprite_bundle: MaterialMesh2dBundle<ColorMaterial>,
     node_resources: NodeResources,
+}
+
+#[derive(Default, Resource, Debug)]
+struct Nodes {
+    nodes: Vec<Entity>,
+}
+
+#[derive(Resource, Debug)]
+struct GridPositions {
+    hand_positions: Vec<Vec2>,
+    chain_positions: Vec<Vec2>,
 }
 
 #[derive(Default, Resource, Debug)]
@@ -47,29 +62,108 @@ struct NodeChain {
     nodes: Vec<Entity>,
 }
 
-#[derive(Resource, Debug)]
-struct GridPositions {
-    positions: Vec<Vec2>,
+#[derive(Asset, TypePath)]
+struct SineAudio {
+    frequency: f32,
+}
+
+struct SineDecoder {
+    // how far along one period the wave is (between 0 and 1)
+    current_progress: f32,
+    // how much we move along the period every frame
+    progress_per_frame: f32,
+    // how long a period is
+    period: f32,
+    sample_rate: u32,
+}
+
+impl SineDecoder {
+    fn new(frequency: f32) -> Self {
+        // standard sample rate for most recordings
+        let sample_rate = 44_100;
+        SineDecoder {
+            current_progress: 0.,
+            progress_per_frame: frequency / sample_rate as f32,
+            period: std::f32::consts::PI * 2.,
+            sample_rate,
+        }
+    }
+}
+
+// The decoder must implement iterator so that it can implement `Decodable`.
+impl Iterator for SineDecoder {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.current_progress += self.progress_per_frame;
+        // we loop back round to 0 to avoid floating point inaccuracies
+        self.current_progress %= 1.;
+        Some(f32::sin(self.period * self.current_progress))
+    }
+}
+// `Source` is what allows the audio source to be played by bevy.
+// This trait provides information on the audio.
+impl Source for SineDecoder {
+    fn current_frame_len(&self) -> Option<usize> {
+        None
+    }
+
+    fn channels(&self) -> u16 {
+        1
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        None
+    }
+}
+
+// Finally `Decodable` can be implemented for our `SineAudio`.
+impl Decodable for SineAudio {
+    type Decoder = SineDecoder;
+
+    type DecoderItem = <SineDecoder as Iterator>::Item;
+
+    fn decoder(&self) -> Self::Decoder {
+        SineDecoder::new(self.frequency)
+    }
 }
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(AudioPlugin {
+            global_volume: GlobalVolume::new(0.2),
+            ..default()
+        }))
         .insert_resource(GameState {
             is_dragging: false,
             selected_node: None,
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
+        .insert_resource(Nodes::default())
         .insert_resource(NodeChain::default())
         .insert_resource(GridPositions {
-            positions: vec![
-                Vec2::new(-260.0, 0.0),
-                Vec2::new(-130.0, 0.0),
-                Vec2::new(0.0, 0.0),
-                Vec2::new(130.0, 0.0),
-                Vec2::new(260.0, 0.0),
+            hand_positions: vec![
+                // Bottom row
+                Vec2::new(-260.0, -200.0),
+                Vec2::new(-130.0, -200.0),
+                Vec2::new(0.0, -200.0),
+                Vec2::new(130.0, -200.0),
+                Vec2::new(260.0, -200.0),
+            ],
+            chain_positions: vec![
+                // Top row
+                Vec2::new(-260.0, 100.0),
+                Vec2::new(-130.0, 100.0),
+                Vec2::new(0.0, 100.0),
+                Vec2::new(130.0, 100.0),
+                Vec2::new(260.0, 100.0),
             ],
         })
+        .add_audio_source::<SineAudio>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -82,6 +176,7 @@ fn main() {
                 scale,
                 update_transforms,
                 snap_to_grid,
+                update_node_chain,
             ),
         )
         .run();
@@ -91,8 +186,9 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    mut node_chain: ResMut<NodeChain>,
+    mut nodes: ResMut<Nodes>,
     grid_positions: Res<GridPositions>,
+    mut audio_assets: ResMut<Assets<SineAudio>>,
 ) {
     commands.spawn(Camera2dBundle::default());
 
@@ -101,7 +197,7 @@ fn setup(
         half_size: square_size / 2.0,
     }));
 
-    for (i, &pos) in grid_positions.positions.iter().enumerate() {
+    for (i, &pos) in grid_positions.hand_positions.iter().enumerate() {
         // Create a unique color for each node
         let color = Color::hsl((i as f32 * 45.0) % 360.0, 0.7, 0.5);
         let square_material = materials.add(ColorMaterial::from(color));
@@ -126,8 +222,16 @@ fn setup(
                 },
             })
             .id();
-        node_chain.nodes.push(entity);
+        nodes.nodes.push(entity);
     }
+    // add a `SineAudio` to the asset server so that it can be played
+    let audio_handle = audio_assets.add(SineAudio {
+        frequency: 440., //this is the frequency of A4
+    });
+    commands.spawn(AudioSourceBundle {
+        source: audio_handle,
+        ..default()
+    });
 }
 
 fn mouse_motion(
@@ -192,14 +296,14 @@ fn update_target_position(
 fn snap_to_grid(
     mut query: Query<&mut NodeResources>,
     mouse_position: Res<MousePosition>,
-    mut node_chain: ResMut<NodeChain>,
+    nodes: Res<Nodes>,
     grid_positions: Res<GridPositions>,
     game_state: Res<GameState>,
 ) {
-    if !node_chain.nodes.is_empty() {
+    if !nodes.nodes.is_empty() {
         let mut occupied_positions = vec![];
 
-        for entity in node_chain.nodes.iter() {
+        for entity in nodes.nodes.iter() {
             if let Ok(mut node_resources) = query.get_mut(*entity) {
                 if game_state.is_dragging {
                     if let Some(selected_node) = game_state.selected_node {
@@ -210,8 +314,9 @@ fn snap_to_grid(
                 } else {
                     let mut closest_position = Vec2::ZERO;
                     let mut closest_distance = f32::MAX;
-
-                    for &grid_pos in grid_positions.positions.iter() {
+                    let mut positions = grid_positions.hand_positions.clone();
+                    positions.extend(grid_positions.chain_positions.clone());
+                    for &grid_pos in positions.iter() {
                         if occupied_positions.contains(&grid_pos) {
                             continue;
                         }
@@ -317,6 +422,22 @@ fn update_transforms(
         if let Ok((_position, mut transform, _node_resources)) = query.get_mut(selected_node) {
             // Set z-level for the selected node
             transform.translation.z = 1.0;
+        }
+    }
+}
+
+fn update_node_chain(
+    mut node_chain: ResMut<NodeChain>,
+    grid_positions: Res<GridPositions>,
+    query: Query<(Entity, &NodeResources)>,
+) {
+    for (entity, node_resources) in query.iter() {
+        if grid_positions
+            .chain_positions
+            .contains(&node_resources.target)
+        {
+            node_chain.nodes.push(entity);
+            // println!("Node chain: {:?}", node_chain.nodes);
         }
     }
 }
