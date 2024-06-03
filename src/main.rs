@@ -38,11 +38,10 @@ struct MousePosition {
 
 #[derive(Resource, Debug)]
 struct GameState {
+    pub bpm: i32,
     pub is_dragging: bool,
     pub selected_node: Option<Entity>,
     pub updating_target: bool,
-    pub updated_beat: bool,
-    pub updated_audio: bool,
     pub updated_chain: bool,
 }
 
@@ -53,7 +52,6 @@ struct CustomNodeBundle {
     #[bundle()]
     sprite_bundle: MaterialMesh2dBundle<ColorMaterial>,
     node_resources: NodeResources,
-    node_type: NodeType,
 }
 
 #[derive(Default, Resource, Debug)]
@@ -72,84 +70,6 @@ struct NodeChain {
     nodes: Vec<Entity>,
 }
 
-#[derive(Asset, TypePath)]
-struct SineAudio {
-    frequency: f32,
-}
-
-struct SineDecoder {
-    current_progress: f32,
-    progress_per_frame: f32,
-    period: f32,
-    sample_rate: u32,
-}
-
-impl SineDecoder {
-    fn new(frequency: f32) -> Self {
-        let sample_rate = 44_100;
-        SineDecoder {
-            current_progress: 0.,
-            progress_per_frame: frequency / sample_rate as f32,
-            period: std::f32::consts::PI * 2.,
-            sample_rate,
-        }
-    }
-}
-
-impl Iterator for SineDecoder {
-    type Item = f32;
-    fn next(&mut self) -> Option<Self::Item> {
-        self.current_progress += self.progress_per_frame;
-        // we loop back round to 0 to avoid floating point inaccuracies
-        self.current_progress %= 1.;
-        Some(f32::sin(self.period * self.current_progress))
-    }
-}
-
-impl Source for SineDecoder {
-    fn current_frame_len(&self) -> Option<usize> {
-        None
-    }
-
-    fn channels(&self) -> u16 {
-        1
-    }
-
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-
-    fn total_duration(&self) -> Option<Duration> {
-        None
-    }
-}
-
-impl Decodable for SineAudio {
-    type Decoder = SineDecoder;
-
-    type DecoderItem = <SineDecoder as Iterator>::Item;
-
-    fn decoder(&self) -> Self::Decoder {
-        SineDecoder::new(self.frequency)
-    }
-}
-
-#[derive(Component, Debug)]
-enum NodeType {
-    Oscillator {
-        frequency: f32,
-    },
-    Sequencer {
-        sequence: Vec<f32>,
-        current_index: usize,
-        bpm: f32,
-        last_played: Instant,
-    },
-}
-
-#[derive(Component)]
-struct AudioPlayed;
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(AudioPlugin {
@@ -157,11 +77,10 @@ fn main() {
             ..default()
         }))
         .insert_resource(GameState {
+            bpm: 120,
             is_dragging: false,
             selected_node: None,
             updating_target: false,
-            updated_beat: false,
-            updated_audio: false,
             updated_chain: false,
         })
         .insert_resource(MousePosition { x: 0.0, y: 0.0 })
@@ -185,7 +104,6 @@ fn main() {
                 Vec2::new(260.0, 100.0),
             ],
         })
-        .add_audio_source::<SineAudio>()
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -200,7 +118,6 @@ fn main() {
                 snap_to_grid,
                 update_check,
                 update_node_chain.run_if(updating_chain),
-                update_audio.run_if(updating_chain),
             ),
         )
         .run();
@@ -212,7 +129,6 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut nodes: ResMut<Nodes>,
     grid_positions: Res<GridPositions>,
-    audio_assets: Res<Assets<SineAudio>>,
 ) {
     commands.spawn(Camera2dBundle::default());
 
@@ -225,21 +141,6 @@ fn setup(
         // Create a unique color for each node
         let color = Color::hsl((i as f32 * 45.0) % 360.0, 0.7, 0.5);
         let square_material = materials.add(ColorMaterial::from(color));
-
-        let node_type = if i == 0 {
-            NodeType::Oscillator { frequency: 440.0 }
-        } else if i == 1 {
-            NodeType::Oscillator { frequency: 660.0 }
-        } else if i == 2 {
-            NodeType::Oscillator { frequency: 880.0 }
-        } else {
-            NodeType::Sequencer {
-                sequence: vec![440.0, 880.0, 660.0],
-                current_index: 0,
-                bpm: 120.0,
-                last_played: Instant::now(),
-            }
-        };
 
         let entity = commands
             .spawn(CustomNodeBundle {
@@ -259,7 +160,6 @@ fn setup(
                     wobble_time: 0.0,
                     is_wobbling: false,
                 },
-                node_type,
             })
             .id();
         nodes.nodes.push(entity);
@@ -484,88 +384,8 @@ fn updating_chain(game_state: Res<GameState>) -> bool {
 }
 
 fn update_check(mut game_state: ResMut<GameState>) {
-    if game_state.updating_target && game_state.updated_chain && game_state.updated_audio {
+    if game_state.updating_target && game_state.updated_chain {
         game_state.updating_target = false;
         game_state.updated_chain = false;
-        game_state.updated_audio = false;
-    }
-}
-
-fn updating_beat(game_state: Res<GameState>) -> bool {
-    game_state.updated_beat
-}
-
-fn update_audio(
-    node_chain: Res<NodeChain>,
-    mut query: Query<(Entity, &NodeResources, &mut NodeType), Without<AudioPlayed>>,
-    mut commands: Commands,
-    mut audio_assets: ResMut<Assets<SineAudio>>,
-    mut game_state: ResMut<GameState>,
-) {
-    let current_time = Instant::now();
-
-    for &entity in node_chain.nodes.iter() {
-        if let Ok((_entity, _node_resources, mut node_type)) = query.get_mut(entity) {
-            match &mut *node_type {
-                NodeType::Oscillator { frequency } => {
-                    // Mark this entity as having its audio played
-                    commands.entity(entity).insert(AudioPlayed);
-                    let audio_handle = audio_assets.add(SineAudio {
-                        frequency: *frequency,
-                    });
-                    commands.spawn(AudioSourceBundle {
-                        source: audio_handle,
-                        ..default()
-                    });
-                }
-                NodeType::Sequencer {
-                    sequence,
-                    current_index,
-                    bpm,
-                    last_played,
-                } => {}
-            }
-        }
-    }
-    game_state.updated_audio = true
-}
-
-fn update_sequence(
-    node_chain: Res<NodeChain>,
-    mut query: Query<(Entity, &NodeResources, &mut NodeType), Without<AudioPlayed>>,
-    mut commands: Commands,
-    mut audio_assets: ResMut<Assets<SineAudio>>,
-    mut game_state: ResMut<GameState>,
-) {
-    let current_time = Instant::now();
-
-    for &entity in node_chain.nodes.iter() {
-        if let Ok((_entity, _node_resources, mut node_type)) = query.get_mut(entity) {
-            match &mut *node_type {
-                NodeType::Oscillator { frequency } => {}
-                NodeType::Sequencer {
-                    sequence,
-                    current_index,
-                    bpm,
-                    last_played,
-                } => {
-                    let interval = 60.0 / *bpm as f32;
-
-                    if current_time.duration_since(*last_played).as_secs_f32() >= interval {
-                        let frequency = sequence[*current_index];
-                        let audio_handle = audio_assets.add(SineAudio { frequency });
-                        commands.spawn(AudioSourceBundle {
-                            source: audio_handle,
-                            ..default()
-                        });
-
-                        // Update the sequencer's state
-                        *current_index = (*current_index + 1) % sequence.len();
-                        *last_played = current_time;
-                        commands.entity(entity).insert(AudioPlayed);
-                    }
-                }
-            }
-        }
     }
 }
